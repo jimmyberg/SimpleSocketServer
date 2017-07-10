@@ -54,7 +54,7 @@ void Connection::threadFuntion(int socketfd){
 				}
 			}
 		}
-		if(readLen < 0){
+		else{
 			keepRunning = false;
 		}
 	}
