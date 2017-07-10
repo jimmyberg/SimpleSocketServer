@@ -1,11 +1,15 @@
 
 #include "SocketPp.h"
 
+#include <openssl/bio.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
 using namespace std;
 
-Connection::Connection(int socketfd){
+Connection::Connection(int socketfd, bool useSsl):usesSsl(useSsl){
 	assignedSocketfd = socketfd;
-	th = thread(&Connection::threadFuntion, this, socketfd);
+	th = thread(&Connection::threadFunction, this, socketfd, useSsl);
 }
 Connection::~Connection(){
 	joinThread();
@@ -28,59 +32,110 @@ void Connection::kill(){
 	shutdown(assignedSocketfd, SHUT_RDWR);
 	close(assignedSocketfd);
 }
-void Connection::threadFuntion(int socketfd){
-	state = Connection::State::running;
-	char socketBuffer[1024];
-	char inputConsideration[1024];
-	unsigned int inputIndex = 0;
-	ssize_t readLen;
-	bool keepRunning = true;
-	while(keepRunning){
-		readLen = read(socketfd, socketBuffer, sizeof(socketBuffer) - 1);
-		if(readLen > 0){
-			socketBuffer[readLen] = 0;
-			cout.flush();
-			//Add incoming data to input buffer.
-			for (int i = 0; i < readLen; ++i){
-				inputConsideration[inputIndex++] = socketBuffer[i];
-				// If a \n character is received then the input data is checked.
-				if(socketBuffer[i] == '\n'){
-					inputConsideration[inputIndex+1] = 0;
-					inputIndex = 0;
-					cout << "Received from socket nr " << socketfd << " : " << inputConsideration;
-					if(strncmp(inputConsideration, "quit", 4) == 0){
-						keepRunning = false;
-						break;
+void Connection::threadFunction(int socketfd, bool useSsl){
+	SSL_CTX *sslctx;
+	SSL *cSSL;
+	int ssl_err;
+	if(usesSsl){
+		sslctx = SSL_CTX_new( SSLv23_server_method());
+		SSL_CTX_set_options(sslctx, SSL_OP_SINGLE_DH_USE);
+		static constexpr char certFilePath[] = "/home/jimmy/Documents/Source_code/CPP/ServerSocket/cert.pem";
+		static constexpr char keyFilePath[] = "/home/jimmy/Documents/Source_code/CPP/ServerSocket/key.pem";
+		int use_cert = SSL_CTX_use_certificate_file(sslctx, certFilePath , SSL_FILETYPE_PEM);
+		if(use_cert != 1){
+			cerr << "Error: could not open " << certFilePath << endl;
+			return;
+		}
+		int use_prv = SSL_CTX_use_PrivateKey_file(sslctx, keyFilePath, SSL_FILETYPE_PEM);
+		if(use_prv != 1){
+			cerr << "Error: could not open " << keyFilePath << endl;
+			return;
+		}
+		cSSL = SSL_new(sslctx);
+		SSL_set_fd(cSSL, socketfd );
+		//Here is the SSL Accept portion.  Now all reads and writes must use SSL
+		ssl_err = SSL_accept(cSSL);
+	}
+	if(usesSsl == false || ssl_err > 0){
+		state = Connection::State::running;
+		char socketBuffer[1024];
+		char inputConsideration[1024];
+		unsigned int inputIndex = 0;
+		ssize_t readLen;
+		bool keepRunning = true;
+		while(keepRunning){
+			if(usesSsl){
+				readLen = SSL_read(cSSL, socketBuffer, sizeof(socketBuffer) - 1);
+			}
+			else{
+				readLen = read(socketfd, socketBuffer, sizeof(socketBuffer) - 1);
+			}
+			if(readLen > 0){
+				socketBuffer[readLen] = 0;
+				cout.flush();
+				//Add incoming data to input buffer.
+				for (int i = 0; i < readLen; ++i){
+					inputConsideration[inputIndex++] = socketBuffer[i];
+					// If a \n character is received then the input data is checked.
+					if(socketBuffer[i] == '\n'){
+						inputConsideration[inputIndex] = 0;
+						inputIndex = 0;
+						cout << "Received from socket nr " << socketfd << " : " << inputConsideration;
+						if(strncmp(inputConsideration, "quit", 4) == 0){
+							keepRunning = false;
+							static constexpr char quitMsg[] = "Goodbye!\n";
+							if(usesSsl){
+								SSL_write(cSSL, quitMsg, sizeof(quitMsg));
+							}
+							else{
+								write(socketfd, quitMsg, sizeof(quitMsg));
+							}
+							break;
+						}
 					}
 				}
 			}
-		}
-		else{
-			keepRunning = false;
+			else{
+				keepRunning = false;
+			}
 		}
 	}
-	if(readLen >= 0){
-		static constexpr char quitMsg[] = "Goodbye!\n";
-		write(socketfd, quitMsg, sizeof(quitMsg));
+	else{
+		cerr << "Error: could not accept SSL connection." << endl;
+	}
+	if(usesSsl){
+		SSL_shutdown(cSSL);
+		SSL_free(cSSL);
 	}
 	close(socketfd);
 	state = Connection::State::available;
 	cout << "Connection " << socketfd << " closed." << endl;
 }
 
-ConnectionManager::ConnectionManager(){
+ConnectionManager::ConnectionManager(bool useSsl):usesSsl(useSsl){
 	garbageCollectorThread = thread(&ConnectionManager::garbageCollectorFunction, this);
+	// Initialize SSL
+	if(usesSsl){
+		SSL_load_error_strings();
+		SSL_library_init();
+		OpenSSL_add_all_algorithms();
+	}
 }
 ConnectionManager::~ConnectionManager(){
 	closeAllConnections();
 	garbageColectorKeepRunning = false;
 	garbageCollectorThread.join();
+	// Destroy SSL
+	if(usesSsl){
+		ERR_free_strings();
+		EVP_cleanup();
+	}
 }
 void ConnectionManager::assignConnection(int socketfd){
 	managingLock.lock();
 	cout << "Assigning connection " << socketfd << " ...";
 	cout.flush();
-	connections.push_back(new Connection(socketfd));
+	connections.push_back(new Connection(socketfd, usesSsl));
 	cout << "done" << endl;
 	managingLock.unlock();
 }
@@ -161,7 +216,7 @@ void ConnectionManager::garbageCollectorFunction(){
 	}
 }
 
-WelcomingSocket::WelcomingSocket(int portnumber){
+WelcomingSocket::WelcomingSocket(int portnumber, bool useSsl):manager(useSsl){
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0) 
 		throw SocketError("Could not open socket");

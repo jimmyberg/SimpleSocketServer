@@ -33,7 +33,7 @@ public:
  */
 class Connection{
 public:
-	Connection(int socketfd);
+	Connection(int socketfd, bool useSsl);
 	~Connection();
 	enum class State{
 		running,
@@ -45,9 +45,10 @@ public:
 	int getSocketFd(){return assignedSocketfd;}
 	void kill();
 private:
+	bool usesSsl;
 	int assignedSocketfd;
 	Connection();
-	void threadFuntion(int socketfd);
+	void threadFunction(int socketfd, bool useSsl);
 	State state = Connection::State::running;
 	std::thread th;
 };
@@ -60,7 +61,7 @@ private:
  */
 class ConnectionManager{
 public:
-	ConnectionManager();
+	ConnectionManager(bool useSsl);
 	~ConnectionManager();
 	void assignConnection(int socketfd);
 	void cleanup();
@@ -68,6 +69,7 @@ public:
 	void printConnections();
 	void kill(int socketfd);
 private:
+	const bool usesSsl;
 	void garbageCollectorFunction();
 	std::vector<Connection*> connections;
 	std::mutex managingLock;
@@ -84,7 +86,7 @@ private:
  */
 class WelcomingSocket{
 public:
-	WelcomingSocket(int portnumber);
+	WelcomingSocket(int portnumber, bool useSsl);
 	void printConnections(){manager.printConnections();}
 	void kill(int socketfd){manager.kill(socketfd);}
 	~WelcomingSocket();

@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
 	if(argc == 2){
 		port = atoi(argv[1]);
 	}
-	WelcomingSocket socket(port);
+	WelcomingSocket socket(port, true);
 	bool running = true;
 	string inputCLI;
 	while(running){
