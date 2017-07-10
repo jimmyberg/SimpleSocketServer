@@ -11,6 +11,8 @@
 
 using namespace std;
 
+void printHelp();
+
 void error(const char *msg)
 {
 	perror(msg);
@@ -33,7 +35,10 @@ int main(int argc, char *argv[])
 		if(inputCLI == ""){
 
 		}
-		else if(inputCLI == "quit"){
+		else if(inputCLI == "help"){
+			printHelp();
+		}
+		else if(inputCLI == "quit" || inputCLI == "q"){
 			cout << "Closing...";
 			cout.flush();
 			running = false;
@@ -51,13 +56,24 @@ int main(int argc, char *argv[])
 				cout.flush();
 				cin.clear();
 				cin >> socketfd;
+				cin.get();
 			}while(cin.good() == false);
 			socket.kill(socketfd);
 		}
 		else{
-			cout << "Invalid command \"" << inputCLI << "\"" << endl;
+			cout << "Invalid command \"" << inputCLI << "\"\n";
+			printHelp();
 		}
 	}
 	cout << "done" << endl;
 	return 0; 
+}
+
+void printHelp(){
+	cout << "Available commands are:\n\n"
+
+	"help : Prints this help message.\n"
+	"quit : Quits the server and closes the clients.\n"
+	"ls   : List current connections and there statuses.\n"
+	"kill : Kill specific connection." << endl;
 }
