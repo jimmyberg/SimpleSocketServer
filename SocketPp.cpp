@@ -39,14 +39,15 @@ void Connection::threadFuntion(int socketfd){
 		readLen = read(socketfd, socketBuffer, sizeof(socketBuffer) - 1);
 		if(readLen > 0){
 			socketBuffer[readLen] = 0;
-			cout << "Received from socket nr " << socketfd << " : " << socketBuffer;
 			cout.flush();
 			//Add incoming data to input buffer.
 			for (int i = 0; i < readLen; ++i){
 				inputConsideration[inputIndex++] = socketBuffer[i];
 				// If a \n character is received then the input data is checked.
 				if(socketBuffer[i] == '\n'){
+					inputConsideration[inputIndex+1] = 0;
 					inputIndex = 0;
+					cout << "Received from socket nr " << socketfd << " : " << inputConsideration;
 					if(strncmp(inputConsideration, "quit", 4) == 0){
 						keepRunning = false;
 						break;
