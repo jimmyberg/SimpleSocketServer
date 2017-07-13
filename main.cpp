@@ -28,9 +28,10 @@ int main(int argc, char *argv[])
 	WelcomingSocket socket(port, true);
 	bool running = true;
 	string inputCLI;
+	cout << "Welcome the the server socket example program.\n"
+	"Enter \"help\" to display help message." << endl;
 	while(running){
-		cout << ":> ";
-		cout.flush();
+		cout << ":> " << flush;
 		getline(cin, inputCLI);
 		if(inputCLI == ""){
 
