@@ -37,11 +37,18 @@ void Connection::threadFunction(int socketfd, bool useSsl){
 	SSL *cSSL;
 	int ssl_err;
 	if(usesSsl){
+		ERR_clear_error();
 		sslctx = SSL_CTX_new( SSLv23_server_method());
 		SSL_CTX_set_options(sslctx, SSL_OP_SINGLE_DH_USE);
-		static constexpr char certFilePath[] = "/home/jimmy/Documents/Source_code/CPP/ServerSocket/cert.pem";
-		static constexpr char keyFilePath[] = "/home/jimmy/Documents/Source_code/CPP/ServerSocket/key.pem";
-		int use_cert = SSL_CTX_use_certificate_file(sslctx, certFilePath , SSL_FILETYPE_PEM);
+		static constexpr char certFilePath[] = "/etc/ssl/certs/192.168.2.30.cert.pem";
+		static constexpr char keyFilePath[] = "/etc/ssl/private/192.168.2.30.key.pem";
+		static constexpr char chainFilePath[] = "/etc/apache2/ssl.crt/ca-chain.cert.pem";
+		int use_chain = SSL_CTX_use_certificate_chain_file(sslctx, chainFilePath);
+		if(use_chain != 1){
+			cerr << "Error: could not open " << chainFilePath << endl;
+			return;
+		}
+		int use_cert = SSL_CTX_use_certificate_file(sslctx, certFilePath, SSL_FILETYPE_PEM);
 		if(use_cert != 1){
 			cerr << "Error: could not open " << certFilePath << endl;
 			return;
@@ -101,7 +108,17 @@ void Connection::threadFunction(int socketfd, bool useSsl){
 		}
 	}
 	else{
-		cerr << "Error: could not accept SSL connection." << endl;
+		cerr << "Error: could not accept SSL connection.\nReason by SSL_get_error() = ";
+		int get_error_num = SSL_get_error(cSSL, ssl_err);
+		cout << get_error_num << endl;
+		if(get_error_num == SSL_ERROR_SSL){
+			cerr << "Printing SSL error stack:" << endl;
+			int curErrorCode;
+			while(curErrorCode = ERR_get_error()){
+				cerr << ERR_error_string(curErrorCode, nullptr) << '\n';
+			}
+			cerr.flush();
+		}
 	}
 	if(usesSsl){
 		SSL_shutdown(cSSL);
