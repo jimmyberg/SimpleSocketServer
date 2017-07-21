@@ -1,15 +1,11 @@
 
 #include "SocketPp.h"
 
-#include <openssl/bio.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-
 using namespace std;
 
-Connection::Connection(int socketfd, bool useSsl):usesSsl(useSsl){
+Connection::Connection(int isocketfd, bool useSsl):socketfd(isocketfd), usesSsl(useSsl){
 	assignedSocketfd = socketfd;
-	th = thread(&Connection::threadFunction, this, socketfd, useSsl);
+	th = thread(&Connection::threadFunction, this, socketfd);
 }
 Connection::~Connection(){
 	joinThread();
@@ -32,10 +28,7 @@ void Connection::kill(){
 	shutdown(assignedSocketfd, SHUT_RDWR);
 	close(assignedSocketfd);
 }
-void Connection::threadFunction(int socketfd, bool useSsl){
-	SSL_CTX *sslctx;
-	SSL *cSSL;
-	int ssl_err;
+void Connection::threadFunction(bool useSsl){
 	if(usesSsl){
 		ERR_clear_error();
 		sslctx = SSL_CTX_new( SSLv23_server_method());
@@ -63,44 +56,17 @@ void Connection::threadFunction(int socketfd, bool useSsl){
 		//Here is the SSL Accept portion.  Now all reads and writes must use SSL
 		ssl_err = SSL_accept(cSSL);
 	}
+	// This is a weird but optimized if statement. It means it will check
+	// ssl_err only if usesSsl == true.
 	if(usesSsl == false || ssl_err > 0){
 		state = Connection::State::running;
 		char socketBuffer[1024];
-		char inputConsideration[1024];
-		unsigned int inputIndex = 0;
 		ssize_t readLen;
-		bool keepRunning = true;
 		while(keepRunning){
-			if(usesSsl){
-				readLen = SSL_read(cSSL, socketBuffer, sizeof(socketBuffer) - 1);
-			}
-			else{
-				readLen = read(socketfd, socketBuffer, sizeof(socketBuffer) - 1);
-			}
+			readLen = read(socketBuffer, sizeof(socketBuffer) - 1);
 			if(readLen > 0){
 				socketBuffer[readLen] = 0;
-				cout.flush();
-				//Add incoming data to input buffer.
-				for (int i = 0; i < readLen; ++i){
-					inputConsideration[inputIndex++] = socketBuffer[i];
-					// If a \n character is received then the input data is checked.
-					if(socketBuffer[i] == '\n'){
-						inputConsideration[inputIndex] = 0;
-						inputIndex = 0;
-						cout << "Received from socket nr " << socketfd << " : " << inputConsideration;
-						if(strncmp(inputConsideration, "quit", 4) == 0){
-							keepRunning = false;
-							static constexpr char quitMsg[] = "Goodbye!\n";
-							if(usesSsl){
-								SSL_write(cSSL, quitMsg, sizeof(quitMsg));
-							}
-							else{
-								write(socketfd, quitMsg, sizeof(quitMsg));
-							}
-							break;
-						}
-					}
-				}
+				dataHandler(socketBuffer, readLen);
 			}
 			else{
 				keepRunning = false;
@@ -114,7 +80,7 @@ void Connection::threadFunction(int socketfd, bool useSsl){
 		if(get_error_num == SSL_ERROR_SSL){
 			cerr << "Printing SSL error stack:" << endl;
 			int curErrorCode;
-			while(curErrorCode = ERR_get_error()){
+			while((curErrorCode = ERR_get_error())){
 				cerr << ERR_error_string(curErrorCode, nullptr) << '\n';
 			}
 			cerr.flush();
@@ -147,14 +113,6 @@ ConnectionManager::~ConnectionManager(){
 		ERR_free_strings();
 		EVP_cleanup();
 	}
-}
-void ConnectionManager::assignConnection(int socketfd){
-	managingLock.lock();
-	cout << "Assigning connection " << socketfd << " ...";
-	cout.flush();
-	connections.push_back(new Connection(socketfd, usesSsl));
-	cout << "done" << endl;
-	managingLock.unlock();
 }
 void ConnectionManager::cleanup(){
 	managingLock.lock();
@@ -230,52 +188,5 @@ void ConnectionManager::garbageCollectorFunction(){
 	while(garbageColectorKeepRunning){
 		usleep(garbageCollectIntervalUs);
 		cleanup();
-	}
-}
-
-WelcomingSocket::WelcomingSocket(int portnumber, bool useSsl):manager(useSsl){
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (sockfd < 0) 
-		throw SocketError("Could not open socket");
-	bzero((char *) &serv_addr, sizeof(serv_addr));
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = INADDR_ANY;
-	serv_addr.sin_port = htons(portnumber);
-	if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0){
-		int errorNumber = errno;
-		static constexpr char text[] = "Could not bind socket ";
-		char mess[sizeof(text) + 5];
-		sprintf(mess, "%s%d", text, errorNumber);
-		throw SocketError(mess);
-	}
-	listen(sockfd, 5);
-	acceptSocket = thread(&WelcomingSocket::acceptIncomming, this);
-	cout << "Welcoming socket started. fd number = " << sockfd << endl;
-}
-WelcomingSocket::~WelcomingSocket(){
-	if(sockfd >= 0){
-		cout << "Closing welcoming socket...";
-		cout.flush();
-		shutdown(sockfd, SHUT_RDWR);
-		acceptSocket.join();
-		cout << "done" << endl;
-		close(sockfd);
-		sockfd = -1;
-	}
-}
-
-void WelcomingSocket::acceptIncomming(){
-	int newsockfd;
-	socklen_t clilen = sizeof(cli_addr);
-	while(1){
-		newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-		if(newsockfd < 0){
-			int errorNumber = errno;
-			cerr << "socket accept error. Error number of errno = " << errorNumber << endl;
-			break;
-		}
-		else{
-			manager.assignConnection(newsockfd);
-		}
 	}
 }
