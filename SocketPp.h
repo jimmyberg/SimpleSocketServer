@@ -17,6 +17,9 @@
 #include <unistd.h>
 #include <vector>
 
+/**
+ * @brief      Class for throw's concerning socket errors.
+ */
 class SocketError{
 public:
 	SocketError(){
@@ -28,11 +31,11 @@ public:
 };
 
 /**
- * @brief      Class for socket connection.
+ * @brief      Abstract Base Class for socket connections.
  *
- *             Note that this class is not copyable due to thread as member. If
- *             necessary it is recommended to use new and delete to maintain its
- *             real position in memory.
+ * @note       This class is not copyable due to the std::thread as member. If
+ *             necessary it is recommended to use @p new and @p delete to
+ *             maintain its real position in memory.
  */
 class Connection{
 public:
@@ -145,27 +148,54 @@ private:
 };
 
 /**
- * @brief      Class for managing multiple connection.
+ * @brief      Class for managing multiple Connection's.
  *
  *             This socket is able to open close and manage (practically) infinite number of
  *             connection sockets.
  */
 class ConnectionManager{
 public:
+	/**
+	 * @brief      Constructor
+	 *
+	 * @param[in]  useSsl  States if future Connections need to use SSL or not.
+	 */
 	ConnectionManager(bool useSsl);
 	~ConnectionManager();
+	/**
+	 * @brief      Creates new connection object that will takeover the socket
+	 *
+	 * @param[in]  socketfd  The socketfd
+	 *
+	 * @tparam     T         Used to specify which Connection implementation to
+	 *                       use. Can only be classes inherited from Connection.
+	 */
 	template<typename T>
 	void assignConnection(int socketfd){
 		managingLock.lock();
-		std::cout << "Assigning connection " << socketfd << " ...";
-		std::cout.flush();
+		std::cout << "Assigning connection " << socketfd << " ..." << std::flush;
 		connections.push_back(new T(socketfd, usesSsl));
 		std::cout << "done" << std::endl;
 		managingLock.unlock();
 	}
+	/**
+	 * @brief      Destroys Connections at which there states are marked
+	 *             Connections::State::available.
+	 */
 	void cleanup();
+	/**
+	 * @brief      Closes/kills all connections. Used by destructor.
+	 */
 	void closeAllConnections();
+	/**
+	 * @brief      Print a list of connection to the terminal.
+	 */
 	void printConnections();
+	/**
+	 * @brief      Kill socket with socketfd if present.
+	 *
+	 * @param[in]  socketfd  The socketfd
+	 */
 	void kill(int socketfd);
 private:
 	const bool usesSsl;
@@ -182,10 +212,19 @@ private:
  *
  *             This socket will answer new connections and make opens new
  *             connection sockets dynamically.
+ *
+ * @tparam     T     Type of Connection it needs to use.
  */
 template<typename T>
 class WelcomingSocket{
 public:
+	/**
+	 * @brief      Constructor
+	 *
+	 * @param[in]  portnumber  The portnumber it needs to listen to.
+	 * @param[in]  useSsl      Specify if future Connection objects need to use
+	 *                         SSL.
+	 */
 	WelcomingSocket(int portnumber, bool useSsl):manager(useSsl){
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 		if (sockfd < 0) 
@@ -209,8 +248,7 @@ public:
 	void kill(int socketfd){manager.kill(socketfd);}
 	~WelcomingSocket(){
 	if(sockfd >= 0){
-		std::cout << "Closing welcoming socket...";
-		std::cout.flush();
+		std::cout << "Closing welcoming socket..." << std::flush;
 		shutdown(sockfd, SHUT_RDWR);
 		acceptSocket.join();
 		std::cout << "done" << std::endl;
