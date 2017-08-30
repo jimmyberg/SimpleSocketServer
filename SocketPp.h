@@ -33,9 +33,13 @@ public:
 /**
  * @brief      Abstract Base Class for socket connections.
  *
+ *             This class needs to be derived. After that the derived class can
+ *             be used as an template argument for the WelcomingSocket class.
+ *
  * @note       This class is not copyable due to the std::thread as member. If
  *             necessary it is recommended to use @p new and @p delete to
- *             maintain its real position in memory.
+ *             maintain its real position in memory. The ConnectionManager class
+ *             takes care of this problem.
  */
 class Connection{
 public:
@@ -92,10 +96,23 @@ public:
 	/**
 	 * @brief      Custom data handler.
 	 *
-	 * @param      inputData  The input data
-	 * @param[in]  size       The size
+	 *             This function needs to be filled in by the derived class.
+	 *             This function will be called by the ConnectionManager when
+	 *             new data arrives from the socket.
+	 *
+	 * @param      inputData  Pointer to the data that has been received.
+	 * @param[in]  size       The size of the array containing the received
+	 *                        data.
 	 */
 	virtual void dataHandler(char *inputData, size_t size) = 0;
+	/**
+	 * @brief      Writes data to the connected socket.
+	 *
+	 * @param[in]  outputData  Pointer to the output data array
+	 * @param[in]  size        The size of the output data array.
+	 *
+	 * @return     Bytes written to socket. Returns -1 on failure.
+	 */
 	ssize_t write(const char *outputData, const size_t size){
 		writeMutex.lock();
 		ssize_t ret = size;
